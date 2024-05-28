@@ -29,7 +29,7 @@ public class CipherConfig {
     private SecureRandom rand;
     private String reportFormat;
     private String errorReportFormat;
-    private Set<String> cipherSuites = new HashSet<>();
+    private Set<String> cipherSuites = new HashSet();
     private boolean stop = false;
     public CipherConfig() {
 

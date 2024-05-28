@@ -25,6 +25,7 @@ import java.security.cert.CertificateParsingException;
 import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -302,7 +303,8 @@ public class SSLTest {
 
         ColorPrintUtil.printKeyValue("Testing server ", host + ":" + port);
 
-        SecureRandom rand = SecureRandom.getInstance("NativePRNG");
+//        SecureRandom rand = SecureRandom.getInstance("NativePRNG");
+        SecureRandom rand = SecureRandom.getInstance("SHA1PRNG");
 
         String reportFormat = "%9s %8s %s%n";
         String errorReportFormat = "%9s %8s %s %s%n";
@@ -448,46 +450,38 @@ public class SSLTest {
     private static String getAlternativeNames(Collection<List<?>> subjectAlternativeNames) {
         final StringBuilder builder = new StringBuilder();
         if (null != subjectAlternativeNames && subjectAlternativeNames.size() != 0) {
-            subjectAlternativeNames.stream()
-                    .map(list -> {
-                        if (null != list && list.size() >= 2) {
-                            return list.get(1);
-                        } else {
-                            return null;
-                        }
-                    }).filter(value -> value != null)
-                    .forEach(name -> {
-                        if (builder.length() > 0) {
-                            builder.append(", ").append(name);
-                        } else {
-                            builder.append(name);
-                        }
-                    });
+            for (List<?> list : subjectAlternativeNames) {
+                if (null != list && list.size() >= 2) {
+                    String name = String.valueOf(list.get(1));
+                    if (builder.length() > 0) {
+                        builder.append(", ").append(name);
+                    } else {
+                        builder.append(name);
+                    }
+                }
+            }
         } else {
             builder.append("Unavailable");
         }
-
         return builder.toString();
     }
 
-    private static synchronized void cipherProbe(CipherConfig params) {
+    private static synchronized void cipherProbe(CipherConfig params) throws ExecutionException, InterruptedException {
         List<CipherResponse> responses = testEngine.invoke(params, executor);
-
         //Print them
-        responses.stream()
-                .forEach(response -> {
-                    if (null != response.getError())
-                        ColorPrintUtil.print(String.format(params.getErrorReportFormat(),
-                                response.getStatus(),
-                                response.getProtocol(),
-                                response.getName(),
-                                response.getError()), ColorPrintUtil.COLOR_BLUE);
-                    else if (!params.isHideRejects() || !"Rejected".equals(response.getStatus()))
-                        ColorPrintUtil.print(String.format(params.getReportFormat(),
-                                response.getStatus(),
-                                response.getProtocol(),
-                                response.getName()), ColorPrintUtil.COLOR_BLUE);
-                });
+        for (CipherResponse response : responses) {
+            if (null != response.getError())
+                ColorPrintUtil.print(String.format(params.getErrorReportFormat(),
+                        response.getStatus(),
+                        response.getProtocol(),
+                        response.getName(),
+                        response.getError()), ColorPrintUtil.COLOR_BLUE);
+            else if (!params.isHideRejects() || !"Rejected".equals(response.getStatus()))
+                ColorPrintUtil.print(String.format(params.getReportFormat(),
+                        response.getStatus(),
+                        response.getProtocol(),
+                        response.getName()), ColorPrintUtil.COLOR_BLUE);
+        }
     }
 
 

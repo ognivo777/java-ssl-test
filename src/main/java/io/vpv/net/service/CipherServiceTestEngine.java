@@ -18,8 +18,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
+import java.util.concurrent.*;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -72,26 +72,26 @@ public class CipherServiceTestEngine {
         return sb.toString();
     }
 
-    public List<CipherResponse> invoke(CipherConfig params, Executor executor) {
+    public List<CipherResponse> invoke(final CipherConfig params, Executor executor) throws InterruptedException, ExecutionException {
         String[] sslEnabledProtocols = params.getSslEnabledProtocols();
         List<String> supportedProtocols = params.getSupportedProtocols();
         Set<String> cipherSuites = params.getCipherSuites();
-        SecureRandom rand = params.getRand();
+        final SecureRandom rand = params.getRand();
         String[] sslCipherSuites = params.getSslCipherSuites();
-        KeyManager[] keyManagers = params.getKeyManagers();
-        TrustManager[] trustManagers = params.getTrustManagers();
-        boolean showHandshakeErrors = params.isShowHandshakeErrors();
-        boolean stop = params.isStop();
-        boolean showSSLErrors = params.isShowSSLErrors();
-        boolean showErrors = params.isShowErrors();
-        boolean hideRejects = params.isHideRejects();
-        String reportFormat = params.getReportFormat();
-        String errorReportFormat = params.getErrorReportFormat();
+        final KeyManager[] keyManagers = params.getKeyManagers();
+        final TrustManager[] trustManagers = params.getTrustManagers();
+        final boolean showHandshakeErrors = params.isShowHandshakeErrors();
+        final boolean stop = params.isStop();
+        final boolean showSSLErrors = params.isShowSSLErrors();
+        final boolean showErrors = params.isShowErrors();
+        final boolean hideRejects = params.isHideRejects();
+        final String reportFormat = params.getReportFormat();
+        final String errorReportFormat = params.getErrorReportFormat();
 
-        List<CipherResponse> responses = new ArrayList<>();
-        List<CompletableFuture<CipherResponse>> futureResponses = new ArrayList<>();
+        List<CipherResponse> responses = new ArrayList();
+        List<Callable<CipherResponse>> futureResponses = new ArrayList();
         for (int i = 0; i < sslEnabledProtocols.length && !params.isStop(); ++i) {
-            String protocol = sslEnabledProtocols[i];
+            final String protocol = sslEnabledProtocols[i];
 
             String[] supportedCipherSuites = null;
 
@@ -119,37 +119,29 @@ public class CipherServiceTestEngine {
                 continue; // Go to the next protocol
             }
 
-            for (String cipherSuite : cipherSuites) {
-//                if (stop) {
-//                    break;
-//                }
-                CompletableFuture<CipherResponse> futureResponse = CompletableFuture.supplyAsync(() -> {
-                    return performCipherTest(params, rand, keyManagers,
-                            trustManagers, showHandshakeErrors,
-                            stop, showSSLErrors, showErrors,
-                            hideRejects, reportFormat, errorReportFormat,
-                            protocol, cipherSuite);
-                }, executor);
-                if (null != futureResponse) {
-                    futureResponses.add(futureResponse);
-                }
+            for (final String cipherSuite : cipherSuites) {
+                final Callable<CipherResponse> cipherResponseCallable = new Callable<CipherResponse>() {
+                    @Override
+                    public CipherResponse call() {
+                        return performCipherTest(params, rand, keyManagers,
+                                trustManagers, showHandshakeErrors,
+                                stop, showSSLErrors, showErrors,
+                                hideRejects, reportFormat, errorReportFormat,
+                                protocol, cipherSuite);
+                    }
+                };
+                futureResponses.add(cipherResponseCallable);
             }
         }
-//        CompletableFuture.allOf(futureResponses.toArray( new CompletableFuture[futureResponses.size()])).join();
-//
-//
-//        futureResponses.stream()
-//                .forEach(response -> {
-//                            try {
-//                                responses.add(response.get());
-//                            } catch (ExecutionException | InterruptedException e) {
-//                                System.out.println("Problem while accessing network:" + e.getMessage());
-//                            }
-//                        }
-//                );
-        responses = futureResponses.stream()
-                .map(CompletableFuture::join)
-                .collect(Collectors.toList());
+        ExecutorService executorService =
+                new ThreadPoolExecutor(5, 5, 0L, TimeUnit.MILLISECONDS,
+                        new LinkedBlockingQueue<Runnable>());
+
+        final List<Future<CipherResponse>> futures = executorService.invokeAll(futureResponses);
+
+        for (Future<CipherResponse> future : futures) {
+            responses.add(future.get());
+        }
         return responses;
     }
 
